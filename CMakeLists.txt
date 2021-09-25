@@ -26,6 +26,9 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
   set(MASTER_PROJECT TRUE)
 endif()
 
+# disable unit test
+set(MASTER_PROJECT FALSE)
+
 option(dmclock_TEST "Generate test targets" ${MASTER_PROJECT})
 if(dmclock_TEST)
   if (NOT(TARGET gtest AND TARGET gtest_main))
