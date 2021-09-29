@@ -45,3 +45,5 @@ if(dmclock_TEST)
   add_subdirectory(support/test)
   add_subdirectory(sim)
 endif()
+  
+add_subdirectory(socket_sim)
