@@ -87,6 +87,7 @@ namespace crimson {
 	  my_rho += cost;
 	}
 	the_lambda += length;
+	my_lambda += length;
       }
 
       inline Counter get_last_delta() const {
