@@ -1193,6 +1193,7 @@ namespace crimson {
 	  limits->next_request().tag.ready = true;
 	  ready_heap.promote(*limits);
 	  limit_heap.demote(*limits);
+	  bandwidth_heap.demote(*limits);
 
 	  limits = &limit_heap.top();
 	}
@@ -1232,6 +1233,11 @@ namespace crimson {
 	  assert(!next.tag.ready || max_tag == next.tag.proportion);
 	  next_call = min_not_0_time(next_call, next.tag.limit);
 	}
+	if (bandwidth_heap.top().has_request() {
+          const auto& next = bandwidth_heap.top().next_request();
+	  assert(!next.tag.ready || max_tag == next.tag.protortion);
+	  next_call = min_not_0_time(next_call, next.tag.bandwidth);
+	}
 	if (next_call < TimeMax) {
 	  return NextReq(next_call);
 	} else {
@@ -1240,12 +1246,18 @@ namespace crimson {
       } // do_next_request
 
 
-      // if possible is not zero and less than current then return it;
+      // if possible is not zero/min_tag and less than current then return it;
       // otherwise return current; the idea is we're trying to find
-      // the minimal time but ignoring zero
+      // the minimal time but ignoring zero/min_tag
       static inline const Time& min_not_0_time(const Time& current,
 					       const Time& possible) {
-	return TimeZero == possible ? current : std::min(current, possible);
+	// return TimeZero == possible ? current : std::min(current, possible);
+	if (possible == TimeZero || possible == min_tag) {
+	  return current;
+	}
+	else {
+	  return std::min(current, possible);
+	}
       }
 
 
@@ -1325,6 +1337,7 @@ namespace crimson {
 	delete_from_heap(client, prop_heap);
 #endif
 	delete_from_heap(client, limit_heap);
+	delete_from_heap(client, bandwidth_heap);
 	delete_from_heap(client, ready_heap);
       }
     }; // class PriorityQueueBase
