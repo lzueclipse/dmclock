@@ -120,7 +120,7 @@ namespace crimson {
        reservation_inv = (0.0 == reservation) ? 0.0 : 1.0 / reservation;
        weight_inv = (0.0 == weight) ? 0.0 : 1.0 / weight;
        limit_inv = (0.0 == limit) ? 0.0 : 1.0 / limit;
-       bandwidth_inv = (0.0 == bandwidth) ? 0.0 : 1.0 / bandwidth
+       bandwidth_inv = (0.0 == bandwidth) ? 0.0 : 1.0 / bandwidth;
       }
 
       friend std::ostream& operator<<(std::ostream& out,
@@ -160,7 +160,7 @@ namespace crimson {
 		 const double anticipation_timeout = 0.0) :
 	delta(_delta),
 	rho(_rho),
-	lamda(_lambda),
+	lambda(_lambda),
 	cost(_cost),
 	ready(false),
 	arrival(time)
@@ -193,7 +193,7 @@ namespace crimson {
 			     prev_tag.bandwidth,
 			     client.bandwidth_inv,
 			     lambda,
-			     false
+			     false,
 			     0);
 	assert(reservation < max_tag || proportion < max_tag);
       }
@@ -236,7 +236,7 @@ namespace crimson {
 	bandwidth(other.bandwidth),
 	delta(other.delta),
 	rho(other.rho),
-	lambdata(other.lambda),
+	lambda(other.lambda),
 	cost(other.cost),
 	ready(other.ready),
 	arrival(other.arrival)
@@ -1036,7 +1036,7 @@ namespace crimson {
 	RequestTag tag = initial_tag(TagCalc{}, client, req_params, time, cost);
 
 	if (at_limit == AtLimit::Reject &&
-            (tag.limit > time + reject_threshold || tag.bandwidth > time + reject_threshod)) {
+            (tag.limit > time + reject_threshold || tag.bandwidth > time + reject_threshold)) {
 	  // if the client is over its limit, reject it here
 	  return EAGAIN;
 	}
@@ -1233,9 +1233,9 @@ namespace crimson {
 	  assert(!next.tag.ready || max_tag == next.tag.proportion);
 	  next_call = min_not_0_time(next_call, next.tag.limit);
 	}
-	if (bandwidth_heap.top().has_request() {
+	if (bandwidth_heap.top().has_request()) {
           const auto& next = bandwidth_heap.top().next_request();
-	  assert(!next.tag.ready || max_tag == next.tag.protortion);
+	  assert(!next.tag.ready || max_tag == next.tag.proportion);
 	  next_call = min_not_0_time(next_call, next.tag.bandwidth);
 	}
 	if (next_call < TimeMax) {

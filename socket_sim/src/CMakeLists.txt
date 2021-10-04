@@ -17,6 +17,8 @@ set_property(
   PROPERTY COMPILE_FLAGS "${warnings_off}"
   )
 
+include_directories(${PROJECT_SOURCE_DIR}/src)
+
 add_executable(socket_sim_client ${socket_sim_client_srcs})
 target_link_libraries(socket_sim_client
                       Threads::Threads
