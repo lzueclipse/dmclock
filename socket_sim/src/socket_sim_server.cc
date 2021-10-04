@@ -113,7 +113,7 @@ void print_statistics()
     int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
 			    std::chrono::system_clock::now().time_since_epoch()).count();
 
-    sleep(3);
+    sleep(5);
 
     int64_t end = std::chrono::duration_cast<std::chrono::seconds>(
 			    std::chrono::system_clock::now().time_since_epoch()).count();
