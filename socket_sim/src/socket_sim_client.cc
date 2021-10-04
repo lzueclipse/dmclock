@@ -16,6 +16,7 @@
 
 std::mutex g_pkts_mtx;
 int64_t g_pkts = 0;
+bool g_quit = false;
 
 void send_loop()
 {
@@ -59,16 +60,17 @@ void send_loop()
     int ret = send(sock, buffer, LEN, 0 );
     if (ret < 0)
     {
-      std::cout << "ret = "
+      std::cout << "Exit, ret = "
 		<< ret
 		<< ", "
 		<< strerror(errno)
 		<< std::endl;
+      g_quit = true;
       break;
     }
     if (ret != LEN)
     {
-      std::cout << "ret = "
+      std::cout << "Exit, ret = "
 		<< ret
 		<< std::endl;
     }
@@ -81,7 +83,7 @@ void send_loop()
 
 void print_statistics()
 {
-  while (true)
+  while (!g_quit)
   {
     int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
 			    std::chrono::system_clock::now().time_since_epoch()).count();

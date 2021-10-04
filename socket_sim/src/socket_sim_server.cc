@@ -16,6 +16,7 @@
 
 std::mutex g_pkts_mtx;
 int64_t g_pkts = 0;
+bool g_quit = false;
 
 void receive_loop()
 {
@@ -79,22 +80,24 @@ void receive_loop()
     while (len != LEN)
     {
       ret = read(new_socket, buffer, LEN);
-      if (ret < 0)
+      if (ret <= 0)
       {
-	std::cout << "ret = "
+	std::cout << "Exit, ret = "
 		  << ret
 		  << ", "
 		  << strerror(errno)
 		  << std::endl;
+	g_quit = true;
 	break;
       }
       len += ret;
     }
     if (len != LEN)
     {
-      std::cout << "ret = "
+      std::cout << "Exit, ret = "
 		<< ret
 		<< std::endl;
+      g_quit = true;
       break;
     }
     {
@@ -106,7 +109,7 @@ void receive_loop()
 
 void print_statistics()
 {
-  while (true)
+  while (!g_quit)
   {
     int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
 			    std::chrono::system_clock::now().time_since_epoch()).count();
