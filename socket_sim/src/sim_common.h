@@ -8,8 +8,8 @@
 #include <chrono>
 #include <deque>
 
-using ClientId = unsigned;
-using ServerId = unsigned;
+using ClientId = std::string;
+using ServerId = std::string;
 using Cost = uint32_t;
 
 struct TestRequest {

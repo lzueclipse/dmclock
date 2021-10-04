@@ -7,9 +7,8 @@
 #include <condition_variable>
 #include <chrono>
 #include <deque>
-#include "sim_common.h"
 
-template<typename Q, typename ReqPm, typename RespPm, typename Accum>
+template<typename Q, typename ReqPm, typename RespPm>
 class SimulatedServer {
 
   struct QueueItem {
@@ -33,42 +32,18 @@ class SimulatedServer {
 
 public:
 
-  struct InternalStats {
-    std::mutex mtx;
-    std::chrono::nanoseconds add_request_time;
-    std::chrono::nanoseconds request_complete_time;
-    uint32_t add_request_count;
-    uint32_t request_complete_count;
-
-    InternalStats() :
-      add_request_time(0),
-      request_complete_time(0),
-      add_request_count(0),
-      request_complete_count(0)
-    {
-      // empty
-    }
-  };
-
   using ClientRespFunc = std::function<void(ClientId,
 					    const TestResponse&,
-					    const ServerId&,
 					    const RespPm&,
 					    const Cost)>;
 
-  using ServerAccumFunc = std::function<void(Accum& accumulator,
-					     const RespPm& additional)>;
-
 protected:
 
-  const ServerId                 id;
   Q*                             priority_queue;
   ClientRespFunc                 client_resp_f;
-  int                            iops;
   size_t                         thread_pool_size;
 
   bool                           finishing;
-  std::chrono::microseconds      op_time;
 
   std::mutex                     inner_queue_mtx;
   std::condition_variable        inner_queue_cv;
@@ -79,12 +54,6 @@ protected:
   using InnerQGuard = std::lock_guard<decltype(inner_queue_mtx)>;
   using Lock = std::unique_lock<std::mutex>;
 
-  // data collection
-
-  ServerAccumFunc accum_f;
-  Accum accumulator;
-
-  InternalStats internal_stats;
 
 public:
 
@@ -94,13 +63,9 @@ public:
   using CreateQueueF = std::function<Q*(CanHandleRequestFunc,HandleRequestFunc)>;
 				    
 
-  SimulatedServer(ServerId _id,
-		  int _iops,
-		  size_t _thread_pool_size,
+  SimulatedServer(size_t _thread_pool_size,
 		  const ClientRespFunc& _client_resp_f,
-		  const ServerAccumFunc& _accum_f,
 		  CreateQueueF _create_queue_f) :
-    id(_id),
     priority_queue(_create_queue_f(std::bind(&SimulatedServer::has_avail_thread,
 					     this),
 				   std::bind(&SimulatedServer::inner_post,
@@ -110,14 +75,9 @@ public:
 					     std::placeholders::_3,
 					     std::placeholders::_4))),
     client_resp_f(_client_resp_f),
-    iops(_iops),
     thread_pool_size(_thread_pool_size),
-    finishing(false),
-    accum_f(_accum_f)
+    finishing(false)
   {
-    op_time =
-      std::chrono::microseconds((int) (0.5 +
-				       thread_pool_size * 1000000.0 / iops));
     std::chrono::milliseconds finishing_check_period(1000);
     threads = new std::thread[thread_pool_size];
     for (size_t i = 0; i < thread_pool_size; ++i) {
@@ -145,16 +105,10 @@ public:
 	    const ReqPm& req_params,
 	    const Cost request_cost)
   {
-    time_stats(internal_stats.mtx,
-	       internal_stats.add_request_time,
-	       [&](){
-		 priority_queue->add_request(std::move(request),
-					     client_id,
-					     req_params,
-					     request_cost);
-	       });
-    count_stats(internal_stats.mtx,
-		internal_stats.add_request_count);
+    priority_queue->add_request(std::move(request),
+				client_id,
+				req_params,
+				request_cost);
   }
 
   bool has_avail_thread() {
@@ -162,9 +116,7 @@ public:
     return inner_queue.size() <= thread_pool_size;
   }
 
-  const Accum& get_accumulator() const { return accumulator; }
   const Q& get_priority_queue() const { return *priority_queue; }
-  const InternalStats& get_internal_stats() const { return internal_stats; }
 
 protected:
 
@@ -174,7 +126,6 @@ protected:
 		  const Cost request_cost) {
     Lock l(inner_queue_mtx);
     assert(!finishing);
-    accum_f(accumulator, additional);
     inner_queue.emplace_back(QueueItem(client,
 				       std::move(request),
 				       additional,
@@ -198,21 +149,11 @@ protected:
 
 	l.unlock();
 
-	// simulation operation by sleeping; then call function to
-	// notify server of completion
-	std::this_thread::sleep_for(op_time * request_cost);
-
 	// TODO: rather than assuming this constructor exists, perhaps
 	// pass in a function that does this mapping?
-	client_resp_f(client, TestResponse{req->epoch}, id, additional, request_cost);
+	client_resp_f(client, TestResponse{req->epoch}, additional, request_cost);
 
-	time_stats(internal_stats.mtx,
-		   internal_stats.request_complete_time,
-		   [&](){
-		     priority_queue->request_completed();
-		   });
-	count_stats(internal_stats.mtx,
-		    internal_stats.request_complete_count);
+	priority_queue->request_completed();
 
 	l.lock(); // in prep for next iteration of loop
       } else {
