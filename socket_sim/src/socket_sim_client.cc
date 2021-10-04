@@ -10,15 +10,15 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <vector>
 
-#define PORT 8080
 #define LEN 2048
 
 std::mutex g_pkts_mtx;
 int64_t g_pkts = 0;
 bool g_quit = false;
 
-void send_loop()
+void send_loop(std::string port)
 {
   int sock = 0;
   struct sockaddr_in serv_addr;
@@ -33,7 +33,7 @@ void send_loop()
   }
 
   serv_addr.sin_family = AF_INET;
-  serv_addr.sin_port = htons(PORT);
+  serv_addr.sin_port = htons(std::stoi(port));
 
   // Convert IPv4 and IPv6 addresses from text to binary form
   if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)
@@ -114,8 +114,25 @@ void print_statistics()
 
 int main(int argc, char const *argv[])
 {
-  std::thread thd = std::thread(print_statistics);
-  send_loop();
-  thd.join();
+  if (argc < 2)
+  {
+    printf("Usage: socket_sim_client <port number> <port number> ... <port number>\n");
+    return -1; 
+  }
+
+  std::thread thd_stat = std::thread(print_statistics);
+  
+  std::vector<std::thread> thd_vec;
+  for (int i = 1; i < argc; i++)
+  { 
+    thd_vec.push_back(std::thread(send_loop, argv[i]));
+  }
+
+  for (auto& thd : thd_vec)
+  {
+    thd.join();
+  }
+
+  thd_stat.join();
   return 0;
 }

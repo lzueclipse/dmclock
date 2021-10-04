@@ -11,14 +11,13 @@
 #include <thread>
 #include <mutex>
 
-#define PORT 8080
 #define LEN  2048
 
 std::mutex g_pkts_mtx;
 int64_t g_pkts = 0;
 bool g_quit = false;
 
-void receive_loop()
+void receive_loop(std::string port)
 {
   int server_fd, new_socket;
   struct sockaddr_in address;
@@ -35,7 +34,7 @@ void receive_loop()
     return;
   }
   
-  // Forcefully attaching socket to the port 8080
+  // Forcefully attaching socket to the port
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
 		 &opt, sizeof(opt)))
   {
@@ -45,9 +44,9 @@ void receive_loop()
   }
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons(PORT);
+  address.sin_port = htons(std::stoi(port));
   
-  // Forcefully attaching socket to the port 8080
+  // Forcefully attaching socket to the port
   if (bind(server_fd, (struct sockaddr *)&address,
 	   sizeof(address)) < 0)
   {
@@ -141,10 +140,18 @@ void print_statistics()
 
 int main(int argc, char const *argv[])
 {
-  std::thread thd = std::thread(print_statistics);
-  receive_loop();
-  
-  thd.join();
+  if (argc != 2)
+  {
+    printf("Usage: socket_sim_server <port number>\n");
+    return -1; 
+  }
+
+  std::thread thd_stat = std::thread(print_statistics);
+
+  std::string port = argv[1];  
+  receive_loop(port);
+
+  thd_stat.join();
   return 0;
 }
 
