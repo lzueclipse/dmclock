@@ -10,6 +10,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include "sim_server.h"
 
 #define LEN  2048
 
