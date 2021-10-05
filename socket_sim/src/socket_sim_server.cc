@@ -1,4 +1,3 @@
-// Server side C/C++ program to demonstrate Socket programming
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/socket.h>
@@ -12,18 +11,22 @@
 #include <mutex>
 #include "sim_server.h"
 
-#define LEN  2048
+#define LEN (1 * 1024 * 1024L)
 
 std::atomic<int64_t> g_pkts;
-bool g_quit = false;
+std::atomic<int64_t> g_pkts_length;
 
-void receive_loop(std::string port)
+extern void accept_loop(std::string port);
+extern void receive_loop(int new_socket);
+extern void print_statistics();
+void dmclock_reschedule();
+
+void accept_loop(std::string port)
 {
   int server_fd, new_socket;
   struct sockaddr_in address;
   int opt = 1;
   int addrlen = sizeof(address);
-  char buffer[LEN];
   
   // Creating socket file descriptor
   if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
@@ -50,64 +53,95 @@ void receive_loop(std::string port)
   if (bind(server_fd, (struct sockaddr *)&address,
 	   sizeof(address)) < 0)
   {
+    close(server_fd);
     std::cout << "bind failed, "
 	      << strerror(errno)
 	      << std::endl;
+    return;
   }
   if (listen(server_fd, 3) < 0)
   {
+    close(server_fd);
     std::cout << "listen, "
 	      << strerror(errno)
 	      << std::endl;
     return;
   }
-  if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
-			   (socklen_t*)&addrlen)) < 0)
-  {
-    std::cout << "accept, "
-	      << strerror(errno)
-	      << std::endl;
-    return;
-  }
-
-  int buff_size = (16 * 1024 * 1024);
-  setsockopt(new_socket, SOL_SOCKET, SO_RCVBUF, &buff_size, sizeof(buff_size));
-
+  
   while (true)
   {
-    int len = 0, ret = 0;
-    while (len != LEN)
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
+			    (socklen_t*)&addrlen)) < 0)
     {
-      ret = read(new_socket, buffer, LEN);
+      close(server_fd);
+      std::cout << "accept, "
+		<< strerror(errno)
+		<< std::endl;
+      return;
+    }
+    int buff_size = (16 * 1024 * 1024);
+    setsockopt(new_socket, SOL_SOCKET, SO_RCVBUF, &buff_size, sizeof(buff_size));
+    
+    std::thread thd = std::thread(receive_loop, new_socket);
+    std::cout << "New worker, thread = "
+	      << thd.get_id()
+	      << std::endl;
+    thd.detach();
+  }
+}
+
+void receive_loop(int new_socket)
+{
+  MsgHeader header;
+  char buffer[LEN];
+  while (true)
+  {
+    char *ptr = (char *)&header;
+    uint32_t len = sizeof(MsgHeader);
+    int ret = 0;
+    while (len != 0)
+    {
+      ret = read(new_socket, ptr + sizeof(MsgHeader) - len, len);
       if (ret <= 0)
       {
-	std::cout << "Exit, ret = "
+	close(new_socket);
+	std::cout << "Worker exit while reading header, thread = "
+		  << std::this_thread::get_id()
+		  << ", ret = "
 		  << ret
-		  << ", "
-		  << strerror(errno)
 		  << std::endl;
-	g_quit = true;
-	break;
+	return;
       }
-      len += ret;
+      len -= ret;
     }
-    if (len != LEN)
+  
+    // std::cout << "payload_length = " << header.payload_length << std::endl;
+    assert(LEN >= header.payload_length);
+
+    len = header.payload_length;
+    while (len != 0)
     {
-      std::cout << "Exit, ret = "
-		<< ret
-		<< std::endl;
-      g_quit = true;
-      break;
+      ret = read(new_socket, buffer, len);
+      if (ret <= 0)
+      {
+	close(new_socket);
+	std::cout << "Worker exit while reading payload, thread = "
+		  << std::this_thread::get_id()
+		  << ", ret = "
+		  << ret
+		  << std::endl;
+	return;
+      }
+      len -= ret;
     }
-    {
-      g_pkts++;
-    }
+    g_pkts++;
+    g_pkts_length += header.payload_length;
   }
 }
 
 void print_statistics()
 {
-  while (!g_quit)
+  while (true)
   {
     int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
 			    std::chrono::system_clock::now().time_since_epoch()).count();
@@ -118,9 +152,12 @@ void print_statistics()
 			    std::chrono::system_clock::now().time_since_epoch()).count();
 
     int64_t pkts = 0;
+    int64_t pkts_length = 0;
     {
       pkts = g_pkts;
+      pkts_length = g_pkts_length;
       g_pkts = 0;
+      g_pkts_length = 0;
     }
     std::cout << "start = "
 	      << start
@@ -129,12 +166,16 @@ void print_statistics()
 	      << ", qps = "
 	      << pkts / (end - start)
 	      << "/s, bandwidth = "
-	      << (pkts * LEN) / 1024 / 1024 / (end - start)
+	      << (pkts_length) / 1024 / 1024 / (end - start)
 	      << " MiB/s"
 	      << std::endl;
   }
 }
 
+void dmclock_reschedule()
+{
+  
+}
 
 int main(int argc, char const *argv[])
 {
@@ -146,11 +187,11 @@ int main(int argc, char const *argv[])
 
   g_pkts = 0;
   std::thread thd_stat = std::thread(print_statistics);
+  thd_stat.detach();
 
   std::string port = argv[1];  
-  receive_loop(port);
+  accept_loop(port);
 
-  thd_stat.join();
   return 0;
 }
 

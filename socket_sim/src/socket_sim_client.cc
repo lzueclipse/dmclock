@@ -1,5 +1,3 @@
-
-// Client side C/C++ program to demonstrate Socket programming
 #include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -12,7 +10,9 @@
 #include <mutex>
 #include <vector>
 
-#define LEN 2048
+#include "sim_server.h"
+
+#define LEN (2 * 1024L)
 
 std::atomic<int64_t> g_pkts;
 bool g_quit = false;
@@ -21,7 +21,7 @@ void send_loop(std::string port)
 {
   int sock = 0;
   struct sockaddr_in serv_addr;
-  char buffer[LEN] = {'a'};
+  char buffer[sizeof(MsgHeader) + LEN] = {'a'};
 
   if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
   {
@@ -56,20 +56,33 @@ void send_loop(std::string port)
 
   while (true)
   {
-    int ret = send(sock, buffer, LEN, 0 );
+    MsgHeader *header = (MsgHeader *)buffer;
+    header->payload_length = LEN;
+    header->req_delta = 0;
+    header->req_rho = 0;
+    header->req_cost = 0;
+    header->req_lambda = 0;
+    header->resp_phase_type = 0;
+    header->resp_cost = 0;
+    header->resp_length = 0;
+
+    int ret = send(sock, buffer, sizeof(buffer), 0 );
     if (ret < 0)
     {
-      std::cout << "Exit, ret = "
+      std::cout << "Worker exit while reading header, thread = "
+		<< std::this_thread::get_id()
+		<< ", ret = "
 		<< ret
 		<< ", "
 		<< strerror(errno)
 		<< std::endl;
-      g_quit = true;
       break;
     }
-    if (ret != LEN)
+    if (ret != sizeof(buffer))
     {
-      std::cout << "Exit, ret = "
+      std::cout << "Worker exit while reading header, thread = "
+		<< std::this_thread::get_id()
+		<< ", ret = "
 		<< ret
 		<< std::endl;
     }
@@ -128,9 +141,16 @@ int main(int argc, char const *argv[])
 
   for (auto& thd : thd_vec)
   {
+    std::cout << "New worker, thread = "
+	      << thd.get_id()
+	      << std::endl;
+  }
+  for (auto& thd : thd_vec)
+  {
     thd.join();
   }
 
+  g_quit = true;
   thd_stat.join();
   return 0;
 }

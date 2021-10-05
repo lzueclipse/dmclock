@@ -11,6 +11,19 @@
 #include <dmclock_recs.h>
 #include <dmclock_server.h>
 
+struct MsgHeader {
+  uint32_t payload_length;
+
+  uint32_t req_delta;
+  uint32_t req_rho;
+  uint32_t req_cost;
+  uint32_t req_lambda;
+  
+  uint32_t resp_phase_type;
+  uint32_t resp_cost;
+  uint64_t resp_length;
+};
+
 struct ClientRequest {
   std::mutex *reschedule_mutex_ptr;
   std::condition_variable *reschedule_cv_ptr;
