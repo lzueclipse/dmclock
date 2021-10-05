@@ -12,7 +12,7 @@
 
 #include "sim_server.h"
 
-#define LEN (2 * 1024L)
+#define LEN (4 * 1024L)
 
 std::atomic<int64_t> g_pkts;
 bool g_quit = false;
@@ -86,8 +86,26 @@ void send_loop(std::string port)
 		<< ret
 		<< std::endl;
     }
+    
+    g_pkts++;
+    
+    char* ptr = buffer;
+    uint32_t len = sizeof(MsgHeader);
+    while (len != 0)
     {
-      g_pkts++;
+      ptr = ptr + sizeof(MsgHeader) - len;
+      ret = read(sock, ptr, len);
+      if (ret <= 0)
+      {
+	close(sock);
+	std::cout << "Worker exit while reading header, thread = "
+		  << std::this_thread::get_id()
+		  << ", ret = "
+		  << ret
+		  << std::endl;
+	return;
+      }
+      len -= ret;
     }
   }
 }

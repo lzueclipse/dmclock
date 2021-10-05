@@ -92,16 +92,18 @@ void accept_loop(std::string port)
 
 void receive_loop(int new_socket)
 {
-  MsgHeader header;
   char buffer[LEN];
   while (true)
   {
+    MsgHeader header;
     char *ptr = (char *)&header;
     uint32_t len = sizeof(MsgHeader);
     int ret = 0;
+    // Receive header
     while (len != 0)
     {
-      ret = read(new_socket, ptr + sizeof(MsgHeader) - len, len);
+      ptr = ptr + sizeof(MsgHeader) - len;
+      ret = read(new_socket, ptr, len);
       if (ret <= 0)
       {
 	close(new_socket);
@@ -118,6 +120,7 @@ void receive_loop(int new_socket)
     // std::cout << "payload_length = " << header.payload_length << std::endl;
     assert(LEN >= header.payload_length);
 
+    // Receive payload
     len = header.payload_length;
     while (len != 0)
     {
@@ -134,8 +137,35 @@ void receive_loop(int new_socket)
       }
       len -= ret;
     }
+  
     g_pkts++;
     g_pkts_length += header.payload_length;
+    // Dmclock reschedule
+    dmclock_reschedule();
+    
+    // Send response
+    memset(&header, 0, sizeof(MsgHeader));
+    ret = send(new_socket, &header, sizeof(MsgHeader), 0 );
+    if (ret < 0)
+    {
+      std::cout << "Worker exit while sendding header, thread = "
+		<< std::this_thread::get_id()
+		<< ", ret = "
+		<< ret
+		<< ", "
+		<< strerror(errno)
+		<< std::endl;
+      break;
+    }
+    if (ret != sizeof(MsgHeader))
+    {
+      std::cout << "Worker exit while sending header, thread = "
+		<< std::this_thread::get_id()
+		<< ", ret = "
+		<< ret
+		<< std::endl;
+    }
+
   }
 }
 
