@@ -15,11 +15,12 @@
 
 std::atomic<int64_t> g_pkts;
 std::atomic<int64_t> g_pkts_length;
+SimulatedServer *g_sim_server;
 
 extern void accept_loop(std::string port);
 extern void receive_loop(int new_socket);
 extern void print_statistics();
-void dmclock_reschedule();
+void dmclock_reschedule(const MsgHeader& header, uint8_t* resp_phase_type, uint32_t* resp_cost);
 
 void accept_loop(std::string port)
 {
@@ -93,6 +94,7 @@ void accept_loop(std::string port)
 void receive_loop(int new_socket)
 {
   char buffer[LEN];
+  
   while (true)
   {
     MsgHeader header;
@@ -141,10 +143,21 @@ void receive_loop(int new_socket)
     g_pkts++;
     g_pkts_length += header.payload_length;
     // Dmclock reschedule
-    dmclock_reschedule();
+    uint8_t resp_phase_type = 0;
+    uint32_t resp_cost = 0;
+    uint32_t resp_length = header.payload_length;
+    dmclock_reschedule(header, &resp_phase_type, &resp_cost);
     
     // Send response
     memset(&header, 0, sizeof(MsgHeader));
+    header.payload_length = 0;
+    header.req_delta = 0;
+    header.req_rho = 0;
+    header.req_cost = 0;
+    header.req_lambda = 0;
+    header.resp_phase_type = resp_phase_type;
+    header.resp_cost = resp_cost;
+    header.resp_length = resp_length;
     ret = send(new_socket, &header, sizeof(MsgHeader), 0 );
     if (ret < 0)
     {
@@ -202,9 +215,41 @@ void print_statistics()
   }
 }
 
-void dmclock_reschedule()
+void dmclock_reschedule(const MsgHeader& header, uint8_t* resp_phase_type, uint32_t* resp_cost)
 {
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  double get_time = now.tv_sec + (now.tv_nsec / 1.0e9);
+
+  uint32_t delta = header.req_delta;
+  uint32_t rho = header.req_rho;
+  uint32_t cost = header.req_cost;
+  uint64_t lambda = header.req_lambda + header.payload_length;
+  ClientId client_id = header.client_id;
   
+  std::mutex reschedule_mutex;
+  std::condition_variable reschedule_cv;
+  bool reschedule_done = false;
+
+  ClientRequest *request_raw_ptr = new ClientRequest();
+  std::unique_ptr<ClientRequest> request(request_raw_ptr);
+  request->reschedule_mutex_ptr = &reschedule_mutex;
+  request->reschedule_cv_ptr = &reschedule_cv;
+  request->reschedule_done = &reschedule_done;
+  request->resp_phase_type = resp_phase_type;
+  request->resp_cost = resp_cost;
+  
+  // lose the control of request
+  g_sim_server->post(std::move(request), client_id, {delta, rho, lambda}, cost, get_time);
+  
+  std::unique_lock<std::mutex> l(reschedule_mutex);
+  while (!reschedule_done)
+  {
+    reschedule_cv.wait(l);
+  }
+
+  // got the control of request again
+  request.reset(request_raw_ptr);
 }
 
 int main(int argc, char const *argv[])
@@ -216,6 +261,14 @@ int main(int argc, char const *argv[])
   }
 
   g_pkts = 0;
+  g_sim_server = new SimulatedServer(5);
+  std::unique_ptr<SimulatedServer> server(g_sim_server);
+  #if 1
+  server->add_client_info(12345, ClientInfo(100.0, 1.0, 3000.0, 55.0 * 1024.0 * 1024.0));
+  #else
+  server->add_client_info(12345, ClientInfo(100.0, 1.0, 4000.0, 55.0 * 1024.0 * 1024.0));
+  #endif
+
   std::thread thd_stat = std::thread(print_statistics);
   thd_stat.detach();
 

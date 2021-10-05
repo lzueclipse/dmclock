@@ -12,7 +12,7 @@
 
 #include "sim_server.h"
 
-#define LEN (4 * 1024L)
+#define LEN (16 * 1024L)
 
 std::atomic<int64_t> g_pkts;
 bool g_quit = false;
