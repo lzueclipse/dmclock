@@ -14,8 +14,7 @@
 
 #define LEN 2048
 
-std::mutex g_pkts_mtx;
-int64_t g_pkts = 0;
+std::atomic<int64_t> g_pkts;
 bool g_quit = false;
 
 void send_loop(std::string port)
@@ -75,7 +74,6 @@ void send_loop(std::string port)
 		<< std::endl;
     }
     {
-      std::lock_guard<std::mutex> lock(g_pkts_mtx);
       g_pkts++;
     }
   }
@@ -95,7 +93,6 @@ void print_statistics()
 
     int64_t pkts = 0;
     {
-      std::lock_guard<std::mutex> lock(g_pkts_mtx);
       pkts = g_pkts;
       g_pkts = 0;
     }
@@ -120,6 +117,7 @@ int main(int argc, char const *argv[])
     return -1; 
   }
 
+  g_pkts = 0;
   std::thread thd_stat = std::thread(print_statistics);
   
   std::vector<std::thread> thd_vec;

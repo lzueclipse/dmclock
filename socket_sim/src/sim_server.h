@@ -122,6 +122,12 @@ public:
     return ci;
   }
 
+  void add_client_info(const ClientId& client_id, const ClientInfo& client_info)
+  {
+    //demo only, no lock, no update
+    client_info_map.insert(std::make_pair(client_id, client_info));
+  }
+
   void post(std::unique_ptr<ClientRequest> request,
 	    const ClientId& client_id,
 	    const ReqParams& req_params,
