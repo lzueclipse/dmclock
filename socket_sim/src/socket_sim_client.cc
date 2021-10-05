@@ -9,13 +9,15 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <set>
 
-#include "sim_server.h"
+#include "sim_common.h"
 
 #define LEN (16 * 1024L)
 
 std::atomic<int64_t> g_pkts;
 bool g_quit = false;
+DmcServiceTracker g_service_tracker;
 
 void send_loop(std::string port)
 {
@@ -57,14 +59,16 @@ void send_loop(std::string port)
   while (true)
   {
     MsgHeader *header = (MsgHeader *)buffer;
+    memset(header, 0, sizeof(MsgHeader));
     header->payload_length = LEN;
-    header->req_delta = 0;
-    header->req_rho = 0;
-    header->req_cost = 0;
-    header->req_lambda = 0;
-    header->resp_phase_type = 0;
-    header->resp_cost = 0;
-    header->resp_length = 0;
+    header->client_id = 0x12345; //demo only, hard code
+    
+    ReqParams req_params = g_service_tracker.get_req_params(std::stoi(port));   
+
+    header->req_delta = req_params.delta;
+    header->req_rho = req_params.rho;
+    header->req_cost = 1; // hard code is enough
+    header->req_lambda = req_params.lambda;
 
     int ret = send(sock, buffer, sizeof(buffer), 0 );
     if (ret < 0)
@@ -107,6 +111,12 @@ void send_loop(std::string port)
       }
       len -= ret;
     }
+
+    header = (MsgHeader *)buffer;
+    g_service_tracker.track_resp(std::stoi(port),
+				 (PhaseType)(header->resp_phase_type),
+				 header->resp_cost,
+				 header->resp_length);   
   }
 }
 
@@ -134,7 +144,7 @@ void print_statistics()
 	      << ", qps = "
 	      << pkts / (end - start)
 	      << "/s, bandwidth = "
-	      << (pkts * LEN) / 1024 / 1024 / (end - start)
+	      << (pkts * (LEN + sizeof(MsgHeader))) / 1024 / 1024 / (end - start)
 	      << " MiB/s"
 	      << std::endl;
   }
@@ -151,10 +161,16 @@ int main(int argc, char const *argv[])
   g_pkts = 0;
   std::thread thd_stat = std::thread(print_statistics);
   
-  std::vector<std::thread> thd_vec;
+  std::set<std::string> port_set;
   for (int i = 1; i < argc; i++)
+  {
+    port_set.insert(argv[i]);
+  }
+
+  std::vector<std::thread> thd_vec;
+  for (auto& port : port_set)
   { 
-    thd_vec.push_back(std::thread(send_loop, argv[i]));
+    thd_vec.push_back(std::thread(send_loop, port));
   }
 
   for (auto& thd : thd_vec)

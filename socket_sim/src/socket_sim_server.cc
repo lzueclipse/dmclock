@@ -9,7 +9,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
-#include "sim_server.h"
+#include "sim_common.h"
 
 #define LEN (1 * 1024 * 1024L)
 
@@ -141,7 +141,8 @@ void receive_loop(int new_socket)
     }
   
     g_pkts++;
-    g_pkts_length += header.payload_length;
+    g_pkts_length += (header.payload_length + sizeof(MsgHeader));
+    
     // Dmclock reschedule
     uint8_t resp_phase_type = 0;
     uint32_t resp_cost = 0;
@@ -150,11 +151,6 @@ void receive_loop(int new_socket)
     
     // Send response
     memset(&header, 0, sizeof(MsgHeader));
-    header.payload_length = 0;
-    header.req_delta = 0;
-    header.req_rho = 0;
-    header.req_cost = 0;
-    header.req_lambda = 0;
     header.resp_phase_type = resp_phase_type;
     header.resp_cost = resp_cost;
     header.resp_length = resp_length;
@@ -263,10 +259,11 @@ int main(int argc, char const *argv[])
   g_pkts = 0;
   g_sim_server = new SimulatedServer(5);
   std::unique_ptr<SimulatedServer> server(g_sim_server);
-  #if 1
-  server->add_client_info(12345, ClientInfo(100.0, 1.0, 3000.0, 55.0 * 1024.0 * 1024.0));
+  ClientId client_id = 0x12345; // demo only, hard code
+  #if 0
+  server->add_client_info(client_id, ClientInfo(100.0, 1.0, 3000.0, 55 * 1024 * 1024.0));
   #else
-  server->add_client_info(12345, ClientInfo(100.0, 1.0, 4000.0, 55.0 * 1024.0 * 1024.0));
+  server->add_client_info(client_id, ClientInfo(100.0, 1.0, 4000.0, 55 * 1024 * 1024));
   #endif
 
   std::thread thd_stat = std::thread(print_statistics);

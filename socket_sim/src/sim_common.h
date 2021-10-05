@@ -10,6 +10,8 @@
 
 #include <dmclock_recs.h>
 #include <dmclock_server.h>
+#include <dmclock_client.h>
+
 using crimson::dmclock::ClientInfo;
 using crimson::dmclock::AtLimit;
 using crimson::dmclock::PhaseType;
@@ -17,6 +19,7 @@ using crimson::dmclock::ReqParams;
 using crimson::dmclock::Cost;
 
 using ClientId = uint32_t;
+using ServerId = uint32_t;
 
 struct MsgHeader {
   uint32_t payload_length;
@@ -61,6 +64,7 @@ struct QueueItem {
 }; // QueueItem
 
 using DmcQueue = crimson::dmclock::PushPriorityQueue<ClientId, ClientRequest, true, false, 3>;
+using DmcServiceTracker = crimson::dmclock::ServiceTracker<ServerId, crimson::dmclock::OrigTracker>;
 
 class SimulatedServer {
 protected:
@@ -200,7 +204,7 @@ protected:
 	*(req->resp_cost) = request_cost;
 	req->reschedule_cv_ptr->notify_one();
 	req.release();
-	reqL.lock();
+	reqL.unlock();
 
 	priority_queue->request_completed();
 
