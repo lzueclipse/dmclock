@@ -31,7 +31,7 @@ namespace crimson {
   namespace dmclock {
 
     // OrigTracker is a best-effort implementation of the the original
-    // dmClock calculations of delta and rho. It adheres to an
+    // dmClock calculations of delta, rho and lambda. It adheres to an
     // interface, implemented via a template type, that allows it to
     // be replaced with an alternative. The interface consists of the
     // static create, prepare_req, resp_update, and get_last_delta
@@ -39,119 +39,61 @@ namespace crimson {
     class OrigTracker {
       Counter   delta_prev_req;
       Counter   rho_prev_req;
+      Counter   lambda_prev_req;
       uint32_t  my_delta;
       uint32_t  my_rho;
+      uint64_t  my_lambda;
 
     public:
 
       OrigTracker(Counter global_delta,
-		  Counter global_rho) :
+		  Counter global_rho,
+		  Counter global_lambda) :
 	delta_prev_req(global_delta),
 	rho_prev_req(global_rho),
+	lambda_prev_req(global_lambda),
 	my_delta(0),
-	my_rho(0)
+	my_rho(0),
+	my_lambda(0)
       { /* empty */ }
 
-      static inline OrigTracker create(Counter the_delta, Counter the_rho) {
-	return OrigTracker(the_delta, the_rho);
+      static inline OrigTracker create(Counter the_delta, Counter the_rho, Counter the_lambda) {
+	return OrigTracker(the_delta, the_rho, the_lambda);
       }
 
-      inline ReqParams prepare_req(Counter& the_delta, Counter& the_rho) {
+      inline ReqParams prepare_req(Counter& the_delta, Counter& the_rho, Counter& the_lambda) {
 	Counter delta_out = the_delta - delta_prev_req - my_delta;
 	Counter rho_out = the_rho - rho_prev_req - my_rho;
+	Counter lambda_out = the_lambda - lambda_prev_req - my_lambda;
 	delta_prev_req = the_delta;
 	rho_prev_req = the_rho;
+	lambda_prev_req = the_lambda;
 	my_delta = 0;
 	my_rho = 0;
-	return ReqParams(uint32_t(delta_out), uint32_t(rho_out));
+	my_lambda = 0;
+	return ReqParams(uint32_t(delta_out), uint32_t(rho_out), uint64_t(lambda_out));
       }
 
       inline void resp_update(PhaseType phase,
 			      Counter& the_delta,
 			      Counter& the_rho,
-			      Cost cost) {
+			      Cost cost,
+			      Counter& the_lambda,
+			      Counter length) {
 	the_delta += cost;
 	my_delta += cost;
 	if (phase == PhaseType::reservation) {
 	  the_rho += cost;
 	  my_rho += cost;
 	}
+	the_lambda += length;
+	my_lambda += length;
       }
 
       inline Counter get_last_delta() const {
 	return delta_prev_req;
       }
     }; // struct OrigTracker
-
-
-    // BorrowingTracker always returns a positive delta and rho. If
-    // not enough responses have come in to allow that, we will borrow
-    // a future response and repay it later.
-    class BorrowingTracker {
-      Counter delta_prev_req;
-      Counter rho_prev_req;
-      Counter delta_borrow;
-      Counter rho_borrow;
-
-    public:
-
-      BorrowingTracker(Counter global_delta, Counter global_rho) :
-	delta_prev_req(global_delta),
-	rho_prev_req(global_rho),
-	delta_borrow(0),
-	rho_borrow(0)
-      { /* empty */ }
-
-      static inline BorrowingTracker create(Counter the_delta,
-					    Counter the_rho) {
-	return BorrowingTracker(the_delta, the_rho);
-      }
-
-      inline Counter calc_with_borrow(const Counter& global,
-				      const Counter& previous,
-				      Counter& borrow) {
-	Counter result = global - previous;
-	if (0 == result) {
-	  // if no replies have come in, borrow one from the future
-	  ++borrow;
-	  return 1;
-	} else if (result > borrow) {
-	  // if we can give back all of what we borrowed, do so
-	  result -= borrow;
-	  borrow = 0;
-	  return result;
-	} else {
-	  // can only return part of what was borrowed in order to
-	  // return positive
-	  borrow = borrow - result + 1;
-	  return 1;
-	}
-      }
-
-      inline ReqParams prepare_req(Counter& the_delta, Counter& the_rho) {
-	Counter delta_out =
-	  calc_with_borrow(the_delta, delta_prev_req, delta_borrow);
-	Counter rho_out =
-	  calc_with_borrow(the_rho, rho_prev_req, rho_borrow);
-	delta_prev_req = the_delta;
-	rho_prev_req = the_rho;
-	return ReqParams(uint32_t(delta_out), uint32_t(rho_out));
-      }
-
-      inline void resp_update(PhaseType phase,
-			      Counter& the_delta,
-			      Counter& the_rho,
-			      Counter cost) {
-	the_delta += cost;
-	if (phase == PhaseType::reservation) {
-	  the_rho += cost;
-	}
-      }
-
-      inline Counter get_last_delta() const {
-	return delta_prev_req;
-      }
-    }; // struct BorrowingTracker
 
 
     /*
@@ -171,6 +113,7 @@ namespace crimson {
 
       Counter                 delta_counter; // # reqs completed
       Counter                 rho_counter;   // # reqs completed via reservation
+      Counter                 lambda_counter; // # reqs completed length (in bytes)
       std::map<S,T>           server_map;
       mutable std::mutex      data_mtx;      // protects Counters and map
 
@@ -195,6 +138,7 @@ namespace crimson {
 		     std::chrono::duration<Rep,Per> _clean_age) :
 	delta_counter(1),
 	rho_counter(1),
+	lambda_counter(1),
 	clean_age(std::chrono::duration_cast<Duration>(_clean_age))
       {
 	cleaning_job =
@@ -220,7 +164,8 @@ namespace crimson {
        */
       void track_resp(const S& server_id,
 		      const PhaseType& phase,
-		      Counter request_cost = 1u) {
+		      Counter request_cost = 1u,
+		      Counter request_length = 0u) {
 	DataGuard g(data_mtx);
 
 	auto it = server_map.find(server_id);
@@ -229,10 +174,10 @@ namespace crimson {
 	  // response or if the record was cleaned up b/w when
 	  // the request was made and now
 	  auto i = server_map.emplace(server_id,
-				      T::create(delta_counter, rho_counter));
+				      T::create(delta_counter, rho_counter, lambda_counter));
 	  it = i.first;
 	}
-	it->second.resp_update(phase, delta_counter, rho_counter, request_cost);
+	it->second.resp_update(phase, delta_counter, rho_counter, request_cost, lambda_counter, request_length);
       }
 
       /*
@@ -243,10 +188,10 @@ namespace crimson {
 	auto it = server_map.find(server);
 	if (server_map.end() == it) {
 	  server_map.emplace(server,
-			     T::create(delta_counter, rho_counter));
-	  return ReqParams(1, 1);
+			     T::create(delta_counter, rho_counter, lambda_counter));
+	  return ReqParams(1, 1, 1);
 	} else {
-	  return it->second.prepare_req(delta_counter, rho_counter);
+	  return it->second.prepare_req(delta_counter, rho_counter, lambda_counter);
 	}
       }
 
